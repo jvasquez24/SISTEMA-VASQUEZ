@@ -80,6 +80,12 @@
     cursor:pointer;text-align:left;
   }
   .backupBox button:hover{border-color:var(--gold);color:var(--gold);}
+  .fbStatus{
+    font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;padding:10px 4px 0;
+    color:var(--text-on-ink-dim);border-top:1px solid #2A3B33;
+  }
+  .fbStatus.ok{color:#8FCBA9;}
+  .fbStatus.err{color:#E3897A;}
 
   /* ================= MAIN ================= */
   .main{flex:1;background:var(--paper);min-height:100vh;padding:38px 42px;overflow-x:hidden;}
@@ -229,6 +235,8 @@
       <button id="loadBackupBtn" type="button">↑ Cargar copia (.json)</button>
       <input type="file" id="backupInput" accept=".json" hidden>
     </div>
+
+    <div class="fbStatus" id="fbStatus">Verificando conexión con Firebase…</div>
   </aside>
 
   <!-- ================= MAIN ================= -->
@@ -254,8 +262,48 @@
     appId: "1:334628196749:web:26ce53dd8e3a9e176b2dc4",
     measurementId: "G-ZHB89CSNRG"
   };
-  const fbApp = firebase.initializeApp(firebaseConfig);
-  const db = firebase.firestore();
+
+  let db = null;
+  let fbReady = false;
+
+  function setFbStatus(text, kind){
+    const el = document.getElementById('fbStatus');
+    if(!el) return;
+    el.textContent = text;
+    el.className = 'fbStatus' + (kind ? ' ' + kind : '');
+  }
+
+  try{
+    if(typeof firebase === 'undefined'){
+      throw new Error('El SDK de Firebase no cargó (revisa tu conexión a internet o si algo bloquea gstatic.com)');
+    }
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+  }catch(err){
+    console.error('Error inicializando Firebase:', err);
+    setFbStatus('✕ No se pudo inicializar Firebase: ' + err.message, 'err');
+  }
+
+  async function testFirebaseConnection(){
+    if(!db) return;
+    try{
+      const ref = db.collection('_diagnostico').doc('conexion');
+      await ref.set({ probado: firebase.firestore.FieldValue.serverTimestamp() }, {merge:true});
+      await ref.get();
+      fbReady = true;
+      setFbStatus('✓ Conectado a Firebase (' + firebaseConfig.projectId + ')', 'ok');
+    }catch(err){
+      console.error('Error de conexión con Firebase:', err);
+      let extra = '';
+      if(err.code === 'permission-denied'){
+        extra = ' — revisa las reglas de seguridad de Firestore (están bloqueando lectura/escritura).';
+      } else if(err.code === 'unavailable' || err.code === 'not-found'){
+        extra = ' — revisa que la base de datos de Firestore esté creada en el proyecto.';
+      }
+      setFbStatus('✕ Sin conexión a Firebase: ' + err.message + extra, 'err');
+    }
+  }
+  testFirebaseConnection();
 
   // ---------------- state ----------------
   let clients = [];         // {id, nombre, cedula, years:{ '2026': { months: { '01': {records:[...] } } } }}
@@ -349,15 +397,21 @@
 
     cfSave.disabled = true;
     cfSave.textContent = 'Guardando…';
-    try{
-      await db.collection('clientes').doc(c.id).set({
-        nombre,
-        cedula,
-        creado: firebase.firestore.FieldValue.serverTimestamp()
-      }, {merge:true});
-    }catch(err){
-      cfErr.textContent = `Se agregó localmente, pero no se pudo guardar en Firebase: ${err.message}`;
+    if(!db){
+      cfErr.textContent = 'Se agregó localmente, pero Firebase no está disponible (ver estado abajo en el panel).';
       cfErr.style.display='block';
+    } else {
+      try{
+        await db.collection('clientes').doc(c.id).set({
+          nombre,
+          cedula,
+          creado: firebase.firestore.FieldValue.serverTimestamp()
+        }, {merge:true});
+      }catch(err){
+        console.error('Error guardando cliente en Firebase:', err);
+        cfErr.textContent = `Se agregó localmente, pero no se pudo guardar en Firebase (${err.code || 'error'}): ${err.message}`;
+        cfErr.style.display='block';
+      }
     }
     cfSave.disabled = false;
     cfSave.textContent = 'Guardar';
@@ -758,6 +812,13 @@
     statusEl.className = 'cloudStatus';
     statusEl.textContent = 'Guardando en Firebase…';
 
+    if(!db){
+      statusEl.textContent = 'Firebase no está disponible — revisa el estado de conexión en el panel izquierdo.';
+      statusEl.classList.add('err');
+      cloudBtn.disabled = false;
+      return;
+    }
+
     const docId = `${currentYear}-${currentMonth}`;
     const periodoPayload = {
       clienteNombre: client.nombre,
@@ -787,7 +848,14 @@
       statusEl.textContent = `✓ Cliente y facturas guardados en Firebase — ${new Date().toLocaleTimeString('es-CR')}`;
       statusEl.classList.add('ok');
     }catch(err){
-      statusEl.textContent = `Error al guardar: ${err.message}`;
+      console.error('Error guardando en Firebase:', err);
+      let extra = '';
+      if(err.code === 'permission-denied'){
+        extra = ' — revisa las reglas de seguridad de Firestore.';
+      } else if(err.code === 'unavailable' || err.code === 'not-found'){
+        extra = ' — revisa que la base de datos de Firestore esté creada.';
+      }
+      statusEl.textContent = `Error al guardar (${err.code || 'error'}): ${err.message}${extra}`;
       statusEl.classList.add('err');
     }finally{
       cloudBtn.disabled = false;
