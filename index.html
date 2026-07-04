@@ -292,6 +292,7 @@
       await ref.get();
       fbReady = true;
       setFbStatus('✓ Conectado a Firebase (' + firebaseConfig.projectId + ')', 'ok');
+      loadClientsFromFirebase();
     }catch(err){
       console.error('Error de conexión con Firebase:', err);
       let extra = '';
@@ -333,6 +334,57 @@
 
   // ================= CLIENT SIDEBAR =================
   function getClient(id){ return clients.find(c => c.id === id); }
+
+  async function loadClientsFromFirebase(){
+    if(!db) return;
+    try{
+      const snap = await db.collection('clientes').get();
+      const yNow = String(new Date().getFullYear());
+      snap.forEach(doc => {
+        if(getClient(doc.id)) return; // ya está cargado localmente
+        const data = doc.data();
+        clients.push({
+          id: doc.id,
+          nombre: data.nombre || '(sin nombre)',
+          cedula: data.cedula || '',
+          years: { [yNow]: { months: {} } },
+          _loaded: false
+        });
+      });
+      renderClientList();
+    }catch(err){
+      console.error('Error cargando clientes desde Firebase:', err);
+    }
+  }
+
+  async function loadClientPeriods(client){
+    if(!db) return;
+    try{
+      const snap = await db.collection('clientes').doc(client.id).collection('periodos').get();
+      snap.forEach(doc => {
+        const data = doc.data();
+        const [anioId, mesId] = doc.id.split('-');
+        const anio = data.anio || anioId;
+        const mes = data.mes || mesId;
+        if(!anio || !mes) return;
+        if(!client.years[anio]) client.years[anio] = { months: {} };
+        client.years[anio].months[mes] = {
+          records: (data.facturas || []).map(f => ({
+            negocio: f.negocio || 'N/D',
+            fecha: f.fecha || 'N/D',
+            subtotal: f.subtotal || 0,
+            iva: f.iva || 0,
+            total: f.total || 0,
+            filename: f.archivo || '(cargado desde Firebase)',
+            clave: f.clave || null,
+            status: 'ok'
+          }))
+        };
+      });
+    }catch(err){
+      console.error('Error cargando periodos del cliente desde Firebase:', err);
+    }
+  }
 
   function renderClientList(){
     clientList.innerHTML = '';
@@ -390,7 +442,8 @@
       id: uid(),
       nombre,
       cedula,
-      years: {}
+      years: {},
+      _loaded: true
     };
     const yNow = String(new Date().getFullYear());
     c.years[yNow] = { months: {} };
@@ -422,13 +475,24 @@
     selectClient(c.id);
   });
 
-  function selectClient(id){
+  async function selectClient(id){
     currentClientId = id;
-    const c = getClient(id);
-    const years = Object.keys(c.years).sort((a,b)=>b-a);
-    currentYear = years.length ? years[0] : null;
+    currentYear = null;
     currentMonth = null;
     renderClientList();
+    const c = getClient(id);
+
+    if(!c._loaded){
+      main.innerHTML = '<div class="welcome"><h2>Cargando datos del cliente…</h2></div>';
+      await loadClientPeriods(c);
+      c._loaded = true;
+    }
+
+    if(!Object.keys(c.years).length){
+      c.years[String(new Date().getFullYear())] = { months: {} };
+    }
+    const years = Object.keys(c.years).sort((a,b)=>b-a);
+    currentYear = years[0];
     renderMain();
   }
 
