@@ -329,13 +329,15 @@
     cfNombre.focus();
   });
   cfCancel.addEventListener('click', ()=> clientForm.classList.remove('open'));
-  cfSave.addEventListener('click', ()=>{
+  cfSave.addEventListener('click', async ()=>{
     const nombre = cfNombre.value.trim();
     const cedula = cfCedula.value.trim();
     if(!nombre || !cedula){
+      cfErr.textContent = 'Completa ambos campos.';
       cfErr.style.display='block';
       return;
     }
+    cfErr.style.display='none';
     const c = {
       id: uid(),
       nombre,
@@ -344,6 +346,22 @@
     };
     const yNow = String(new Date().getFullYear());
     c.years[yNow] = { months: {} };
+
+    cfSave.disabled = true;
+    cfSave.textContent = 'Guardando…';
+    try{
+      await db.collection('clientes').doc(c.id).set({
+        nombre,
+        cedula,
+        creado: firebase.firestore.FieldValue.serverTimestamp()
+      }, {merge:true});
+    }catch(err){
+      cfErr.textContent = `Se agregó localmente, pero no se pudo guardar en Firebase: ${err.message}`;
+      cfErr.style.display='block';
+    }
+    cfSave.disabled = false;
+    cfSave.textContent = 'Guardar';
+
     clients.push(c);
     clientForm.classList.remove('open');
     renderClientList();
@@ -741,7 +759,7 @@
     statusEl.textContent = 'Guardando en Firebase…';
 
     const docId = `${currentYear}-${currentMonth}`;
-    const payload = {
+    const periodoPayload = {
       clienteNombre: client.nombre,
       clienteCedula: client.cedula,
       anio: currentYear,
@@ -753,12 +771,20 @@
       totales: okRecs.reduce((a,r)=>{a.subtotal+=r.subtotal;a.iva+=r.iva;a.total+=r.total;return a;},{subtotal:0,iva:0,total:0}),
       actualizado: firebase.firestore.FieldValue.serverTimestamp()
     };
+    const clientePayload = {
+      nombre: client.nombre,
+      cedula: client.cedula,
+      actualizado: firebase.firestore.FieldValue.serverTimestamp()
+    };
 
     try{
-      await db.collection('clientes').doc(client.id)
-        .collection('periodos').doc(docId)
-        .set(payload, {merge:true});
-      statusEl.textContent = `✓ Guardado en Firebase — ${new Date().toLocaleTimeString('es-CR')}`;
+      const clienteRef = db.collection('clientes').doc(client.id);
+      const periodoRef = clienteRef.collection('periodos').doc(docId);
+      const batch = db.batch();
+      batch.set(clienteRef, clientePayload, {merge:true});
+      batch.set(periodoRef, periodoPayload, {merge:true});
+      await batch.commit();
+      statusEl.textContent = `✓ Cliente y facturas guardados en Firebase — ${new Date().toLocaleTimeString('es-CR')}`;
       statusEl.classList.add('ok');
     }catch(err){
       statusEl.textContent = `Error al guardar: ${err.message}`;
