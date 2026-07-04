@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control de Facturas por Cliente · CR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#16241F; --ink-soft:#1D2E27;
+    --paper:#FBF7EE; --paper-dim:#F1EAD7;
+    --gold:#C89B3C; --gold-dim:#9C7A2E;
+    --red:#A23E2B; --teal:#4A7566;
+    --line:#DCD2B2; --text-dim:#8A8368;
+    --text-on-ink:#EDE6D2; --text-on-ink-dim:#A9A183;
+    --radius:2px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:'Inter',sans-serif;color:var(--ink);}
+  .app{display:flex;min-height:100vh;}
+
+  /* ================= SIDEBAR ================= */
+  .sidebar{
+    width:288px;flex:none;background:var(--ink);color:var(--text-on-ink);
+    display:flex;flex-direction:column;padding:26px 18px;gap:18px;
+  }
+  .brand{padding:0 6px 14px;border-bottom:1px solid #2A3B33;}
+  .brand .eyebrow{
+    font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--gold);display:block;margin-bottom:6px;
+  }
+  .brand h1{font-family:'Fraunces',serif;font-weight:600;font-size:21px;margin:0;line-height:1.2;}
+
+  .newClientBtn{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    background:transparent;border:1px dashed #3E5347;color:var(--text-on-ink);
+    padding:11px;border-radius:var(--radius);font-family:'Inter',sans-serif;font-weight:600;
+    font-size:13.5px;cursor:pointer;transition:border-color .15s ease, color .15s ease;
+  }
+  .newClientBtn:hover{border-color:var(--gold);color:var(--gold);}
+
+  .clientForm{background:var(--ink-soft);border-radius:var(--radius);padding:14px;display:none;flex-direction:column;gap:9px;}
+  .clientForm.open{display:flex;}
+  .clientForm input{
+    background:#0F1912;border:1px solid #2A3B33;color:var(--text-on-ink);
+    padding:9px 10px;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:13px;
+  }
+  .clientForm input::placeholder{color:#6D7768;}
+  .clientForm .row{display:flex;gap:8px;}
+  .clientForm .row button{flex:1;padding:8px;font-size:12.5px;border-radius:var(--radius);border:none;cursor:pointer;font-weight:600;font-family:'Inter',sans-serif;}
+  .clientForm .save{background:var(--gold);color:var(--ink);}
+  .clientForm .cancel{background:transparent;color:var(--text-on-ink-dim);border:1px solid #2A3B33 !important;}
+  .clientForm small.err{color:#E3897A;font-size:11.5px;display:none;}
+
+  .clientList{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;margin-top:2px;}
+  .clientItem{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:11px 10px;border-radius:var(--radius);cursor:pointer;
+    border:1px solid transparent;transition:background .12s ease,border-color .12s ease;
+  }
+  .clientItem:hover{background:var(--ink-soft);}
+  .clientItem.active{background:var(--ink-soft);border-color:var(--gold);}
+  .clientItem .info{overflow:hidden;}
+  .clientItem .nombre{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .clientItem .cedula{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-on-ink-dim);}
+  .clientItem .del{background:none;border:none;color:var(--text-on-ink-dim);cursor:pointer;font-size:15px;opacity:0;transition:opacity .12s;}
+  .clientItem:hover .del{opacity:1;}
+  .clientItem .del:hover{color:#E3897A;}
+  .emptyClients{color:var(--text-on-ink-dim);font-size:12.5px;padding:10px 6px;line-height:1.5;}
+
+  .backupBox{border-top:1px solid #2A3B33;padding-top:14px;display:flex;flex-direction:column;gap:8px;}
+  .backupBox button{
+    background:transparent;border:1px solid #2A3B33;color:var(--text-on-ink-dim);
+    padding:9px;border-radius:var(--radius);font-size:12px;font-family:'JetBrains Mono',monospace;
+    cursor:pointer;text-align:left;
+  }
+  .backupBox button:hover{border-color:var(--gold);color:var(--gold);}
+
+  /* ================= MAIN ================= */
+  .main{flex:1;background:var(--paper);min-height:100vh;padding:38px 42px;overflow-x:hidden;}
+
+  .welcome{max-width:480px;margin:8vh auto 0;text-align:center;color:var(--text-dim);}
+  .welcome svg{width:52px;height:52px;color:var(--teal);margin-bottom:16px;}
+  .welcome h2{font-family:'Fraunces',serif;font-weight:600;font-size:24px;color:var(--ink);margin:0 0 10px;}
+
+  .clientHeader{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:26px;}
+  .clientHeader h2{font-family:'Fraunces',serif;font-weight:600;font-size:30px;margin:0 0 6px;}
+  .clientHeader .ced{font-family:'JetBrains Mono',monospace;color:var(--text-dim);font-size:13.5px;}
+  .clientStats{display:flex;gap:26px;flex-wrap:wrap;}
+  .clientStats div{text-align:right;}
+  .clientStats label{display:block;font-family:'JetBrains Mono',monospace;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);}
+  .clientStats strong{font-family:'JetBrains Mono',monospace;font-size:18px;}
+
+  .yearRow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:26px;}
+  .yearPill{
+    position:relative;padding:8px 16px;border-radius:20px;border:1px solid var(--line);
+    background:#fff;font-family:'JetBrains Mono',monospace;font-size:13.5px;cursor:pointer;
+    display:flex;align-items:center;gap:8px;transition:border-color .12s ease,background .12s ease;
+  }
+  .yearPill:hover{border-color:var(--gold);}
+  .yearPill.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .yearPill .x{opacity:.5;font-size:13px;}
+  .yearPill .x:hover{opacity:1;color:var(--red);}
+  .addYearPill{
+    padding:8px 14px;border-radius:20px;border:1px dashed var(--line);background:none;
+    color:var(--text-dim);font-family:'Inter',sans-serif;font-size:13px;cursor:pointer;font-weight:600;
+  }
+  .addYearPill:hover{border-color:var(--gold-dim);color:var(--gold-dim);}
+  .addYearInline{display:flex;align-items:center;gap:6px;}
+  .addYearInline input{width:78px;padding:7px 8px;border:1px solid var(--line);border-radius:var(--radius);font-family:'JetBrains Mono',monospace;}
+  .addYearInline button{padding:7px 10px;border:none;background:var(--ink);color:var(--paper);border-radius:var(--radius);cursor:pointer;font-size:12px;}
+
+  .monthGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  .monthCard{
+    background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:16px;cursor:pointer;
+    transition:border-color .12s ease, transform .1s ease;
+  }
+  .monthCard:hover{border-color:var(--gold);transform:translateY(-1px);}
+  .monthCard.has-data{border-left:3px solid var(--teal);}
+  .monthCard .m{font-family:'Fraunces',serif;font-weight:600;font-size:16px;margin-bottom:8px;display:block;}
+  .monthCard .count{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-dim);display:block;}
+  .monthCard .total{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;margin-top:4px;display:block;}
+
+  /* --------- month workbench (reused pattern) --------- */
+  .breadcrumb{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--text-dim);margin-bottom:18px;display:flex;align-items:center;gap:8px;}
+  .breadcrumb button{background:none;border:none;color:var(--gold-dim);cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;padding:0;}
+  .breadcrumb .sep{opacity:.5;}
+
+  .dropzone{
+    background:#fff;border:1.5px dashed var(--line);border-radius:var(--radius);
+    padding:38px 28px;text-align:center;margin-bottom:22px;transition:border-color .15s ease, background .15s ease;
+  }
+  .dropzone.drag{border-color:var(--gold);background:var(--paper-dim);}
+  .dropzone svg{width:38px;height:38px;color:var(--teal);margin-bottom:10px;}
+  .dropzone p{margin:0;font-size:15px;}
+  .dropzone .hint{margin-top:6px;font-size:13.5px;color:var(--text-dim);}
+  .dropzone .hint button{background:none;border:none;color:var(--gold-dim);font-weight:600;text-decoration:underline;cursor:pointer;font-size:13.5px;padding:0;font-family:inherit;}
+  .progress-line{height:2px;background:var(--line);margin-top:18px;border-radius:2px;overflow:hidden;display:none;}
+  .progress-line.active{display:block;}
+  .progress-line span{display:block;height:100%;background:var(--gold);width:0%;transition:width .12s ease;}
+  .progress-text{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-dim);margin-top:7px;display:none;}
+  .progress-text.active{display:block;}
+
+  .toolbar{
+    display:flex;align-items:center;gap:22px;flex-wrap:wrap;background:#fff;
+    border:1px solid var(--line);border-radius:var(--radius);padding:16px 22px;margin-bottom:18px;
+  }
+  .summary{display:flex;gap:28px;flex-wrap:wrap;flex:1;}
+  .summary>div{display:flex;flex-direction:column;gap:3px;}
+  .summary label{font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-dim);}
+  .summary strong{font-family:'JetBrains Mono',monospace;font-size:17px;}
+  .actions{display:flex;gap:8px;}
+  button.primary{background:var(--ink);color:var(--paper);border:none;border-radius:var(--radius);padding:11px 18px;font-weight:600;font-size:13.5px;cursor:pointer;font-family:'Inter',sans-serif;}
+  button.primary:hover:not(:disabled){background:var(--teal);}
+  button.primary:disabled{background:#B8B29A;cursor:not-allowed;}
+  button.ghost{background:none;border:1px solid var(--line);color:var(--text-dim);border-radius:var(--radius);padding:11px 15px;font-size:13.5px;cursor:pointer;font-family:'Inter',sans-serif;font-weight:500;}
+  button.ghost:hover:not(:disabled){border-color:var(--red);color:var(--red);}
+  button.ghost:disabled{opacity:.4;cursor:not-allowed;}
+
+  .table-wrap{background:#fff;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  thead th{text-align:left;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-dim);padding:12px 14px;border-bottom:1px solid var(--line);background:var(--paper-dim);white-space:nowrap;}
+  thead th.num{text-align:right;}
+  tbody td{padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--paper-dim);}
+  td.num{font-family:'JetBrains Mono',monospace;text-align:right;white-space:nowrap;}
+  td.negocio{font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  td.archivo{color:var(--text-dim);font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:10.5px;font-weight:600;font-family:'JetBrains Mono',monospace;}
+  .badge.ok{background:#E4EEE8;color:var(--teal);}
+  .badge.error{background:#F3E1DC;color:var(--red);}
+  .badge.dup{background:#F0EAD6;color:var(--gold-dim);}
+  .badge.mismatch{background:#F6DCD3;color:var(--red);}
+  .row-flag td:not(.estado-cell){color:var(--text-dim);}
+  .del-btn{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:15px;padding:4px 6px;border-radius:var(--radius);}
+  .del-btn:hover{color:var(--red);background:var(--paper-dim);}
+  .empty-row td{text-align:center;color:var(--text-dim);padding:34px 14px;font-style:italic;}
+  tfoot td{padding:13px 14px;border-top:2px solid var(--ink);font-family:'JetBrains Mono',monospace;font-weight:700;background:var(--paper-dim);}
+
+  @media (max-width:900px){
+    .app{flex-direction:column;}
+    .sidebar{width:100%;}
+    .main{padding:26px 18px;}
+    .monthGrid{grid-template-columns:repeat(2,1fr);}
+    .table-wrap{overflow-x:auto;}
+    table{min-width:680px;}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="eyebrow">Hacienda CR · XML v4.3/4.4</span>
+      <h1>Control de Facturas</h1>
+    </div>
+
+    <button class="newClientBtn" id="newClientBtn" type="button">+ Nuevo cliente</button>
+    <div class="clientForm" id="clientForm">
+      <input type="text" id="cfNombre" placeholder="Nombre del cliente">
+      <input type="text" id="cfCedula" placeholder="Número de cédula">
+      <small class="err" id="cfErr">Completa ambos campos.</small>
+      <div class="row">
+        <button class="save" id="cfSave" type="button">Guardar</button>
+        <button class="cancel" id="cfCancel" type="button">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="clientList" id="clientList">
+      <div class="emptyClients">Aún no tienes clientes. Agrega uno para empezar a organizar sus facturas por año y mes.</div>
+    </div>
+
+    <div class="backupBox">
+      <button id="saveBackupBtn" type="button">↓ Guardar copia (.json)</button>
+      <button id="loadBackupBtn" type="button">↑ Cargar copia (.json)</button>
+      <input type="file" id="backupInput" accept=".json" hidden>
+    </div>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <main class="main" id="main">
+    <div class="welcome">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h16v16H4z" stroke-linejoin="round"/><path d="M8 9h8M8 13h8M8 17h4" stroke-linecap="round"/></svg>
+      <h2>Selecciona o agrega un cliente</h2>
+      <p>Cada cliente guarda sus comprobantes ordenados por año y mes. Los datos se guardan solo en esta sesión — usa "Guardar copia" para conservarlos.</p>
+    </div>
+  </main>
+
+</div>
+
+<script>
+(function(){
+  // ---------------- state ----------------
+  let clients = [];         // {id, nombre, cedula, years:{ '2026': { months: { '01': {records:[...] } } } }}
+  let currentClientId = null;
+  let currentYear = null;
+  let currentMonth = null;
+
+  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const money = new Intl.NumberFormat('es-CR', {minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtMoney = n => '₡' + money.format(n || 0);
+  const normCedula = s => (s||'').replace(/\D/g,'');
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+
+  // ---------------- DOM refs ----------------
+  const main = document.getElementById('main');
+  const clientList = document.getElementById('clientList');
+  const newClientBtn = document.getElementById('newClientBtn');
+  const clientForm = document.getElementById('clientForm');
+  const cfNombre = document.getElementById('cfNombre');
+  const cfCedula = document.getElementById('cfCedula');
+  const cfErr = document.getElementById('cfErr');
+  const cfSave = document.getElementById('cfSave');
+  const cfCancel = document.getElementById('cfCancel');
+  const saveBackupBtn = document.getElementById('saveBackupBtn');
+  const loadBackupBtn = document.getElementById('loadBackupBtn');
+  const backupInput = document.getElementById('backupInput');
+
+  // ================= CLIENT SIDEBAR =================
+  function getClient(id){ return clients.find(c => c.id === id); }
+
+  function renderClientList(){
+    clientList.innerHTML = '';
+    if(!clients.length){
+      clientList.innerHTML = '<div class="emptyClients">Aún no tienes clientes. Agrega uno para empezar a organizar sus facturas por año y mes.</div>';
+      return;
+    }
+    clients.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'clientItem' + (c.id === currentClientId ? ' active' : '');
+      item.innerHTML = `
+        <div class="info">
+          <div class="nombre">${escapeHtml(c.nombre)}</div>
+          <div class="cedula">${escapeHtml(c.cedula)}</div>
+        </div>
+        <button class="del" title="Eliminar cliente">×</button>
+      `;
+      item.addEventListener('click', (e)=>{
+        if(e.target.classList.contains('del')) return;
+        selectClient(c.id);
+      });
+      item.querySelector('.del').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        if(confirm(`¿Eliminar a "${c.nombre}" y todas sus facturas guardadas en esta sesión?`)){
+          clients = clients.filter(x => x.id !== c.id);
+          if(currentClientId === c.id){ currentClientId = null; currentYear = null; currentMonth = null; renderMain(); }
+          renderClientList();
+        }
+      });
+      clientList.appendChild(item);
+    });
+  }
+
+  function escapeHtml(s){
+    return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  newClientBtn.addEventListener('click', ()=>{
+    clientForm.classList.add('open');
+    cfErr.style.display = 'none';
+    cfNombre.value=''; cfCedula.value='';
+    cfNombre.focus();
+  });
+  cfCancel.addEventListener('click', ()=> clientForm.classList.remove('open'));
+  cfSave.addEventListener('click', ()=>{
+    const nombre = cfNombre.value.trim();
+    const cedula = cfCedula.value.trim();
+    if(!nombre || !cedula){
+      cfErr.style.display='block';
+      return;
+    }
+    const c = {
+      id: uid(),
+      nombre,
+      cedula,
+      years: {}
+    };
+    const yNow = String(new Date().getFullYear());
+    c.years[yNow] = { months: {} };
+    clients.push(c);
+    clientForm.classList.remove('open');
+    renderClientList();
+    selectClient(c.id);
+  });
+
+  function selectClient(id){
+    currentClientId = id;
+    const c = getClient(id);
+    const years = Object.keys(c.years).sort((a,b)=>b-a);
+    currentYear = years.length ? years[0] : null;
+    currentMonth = null;
+    renderClientList();
+    renderMain();
+  }
+
+  // ================= BACKUP =================
+  saveBackupBtn.addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify(clients, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `control-facturas-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+  loadBackupBtn.addEventListener('click', ()=> backupInput.click());
+  backupInput.addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const parsed = JSON.parse(reader.result);
+        if(!Array.isArray(parsed)) throw new Error('Formato inválido');
+        clients = parsed;
+        currentClientId = null; currentYear = null; currentMonth = null;
+        renderClientList();
+        renderMain();
+      }catch(err){
+        alert('No se pudo leer el archivo de respaldo: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    backupInput.value = '';
+  });
+
+  // ================= MAIN RENDER DISPATCH =================
+  function renderMain(){
+    if(!currentClientId){
+      main.innerHTML = `
+        <div class="welcome">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h16v16H4z" stroke-linejoin="round"/><path d="M8 9h8M8 13h8M8 17h4" stroke-linecap="round"/></svg>
+          <h2>Selecciona o agrega un cliente</h2>
+          <p>Cada cliente guarda sus comprobantes ordenados por año y mes. Los datos se guardan solo en esta sesión — usa "Guardar copia" para conservarlos.</p>
+        </div>`;
+      return;
+    }
+    if(currentMonth){
+      renderMonthWorkbench();
+    } else {
+      renderClientDashboard();
+    }
+  }
+
+  function clientTotals(c){
+    let count=0, subtotal=0, iva=0, total=0;
+    Object.values(c.years).forEach(y => Object.values(y.months).forEach(m => {
+      m.records.forEach(r => { if(r.status==='ok'){ count++; subtotal+=r.subtotal; iva+=r.iva; total+=r.total; } });
+    }));
+    return {count, subtotal, iva, total};
+  }
+
+  function renderClientDashboard(){
+    const c = getClient(currentClientId);
+    const t = clientTotals(c);
+    const years = Object.keys(c.years).sort((a,b)=>b-a);
+
+    main.innerHTML = `
+      <div class="clientHeader">
+        <div>
+          <h2>${escapeHtml(c.nombre)}</h2>
+          <div class="ced">Cédula: ${escapeHtml(c.cedula)}</div>
+        </div>
+        <div class="clientStats">
+          <div><label>Facturas</label><strong>${t.count}</strong></div>
+          <div><label>Subtotal</label><strong>${fmtMoney(t.subtotal)}</strong></div>
+          <div><label>IVA</label><strong>${fmtMoney(t.iva)}</strong></div>
+          <div><label>Total</label><strong>${fmtMoney(t.total)}</strong></div>
+        </div>
+      </div>
+
+      <div class="yearRow" id="yearRow"></div>
+      <div class="monthGrid" id="monthGrid"></div>
+    `;
+
+    const yearRow = document.getElementById('yearRow');
+    years.forEach(y => {
+      const pill = document.createElement('div');
+      pill.className = 'yearPill' + (y===currentYear ? ' active' : '');
+      pill.innerHTML = `<span>${y}</span><span class="x" title="Eliminar año">×</span>`;
+      pill.querySelector('span:first-child').addEventListener('click', ()=>{ currentYear = y; currentMonth=null; renderMain(); });
+      pill.querySelector('.x').addEventListener('click', (e)=>{
+        e.stopPropagation();
+        if(confirm(`¿Eliminar el año ${y} y todas sus facturas guardadas en esta sesión?`)){
+          delete c.years[y];
+          if(currentYear === y){
+            const rest = Object.keys(c.years).sort((a,b)=>b-a);
+            currentYear = rest.length ? rest[0] : null;
+          }
+          renderMain();
+        }
+      });
+      yearRow.appendChild(pill);
+    });
+
+    const addWrap = document.createElement('div');
+    addWrap.id = 'addYearWrap';
+    const addBtn = document.createElement('button');
+    addBtn.className = 'addYearPill';
+    addBtn.textContent = '+ Año';
+    addBtn.addEventListener('click', ()=>{
+      addWrap.innerHTML = `
+        <div class="addYearInline">
+          <input type="number" id="newYearInput" placeholder="2027" min="2000" max="2100">
+          <button id="newYearSave">Agregar</button>
+        </div>`;
+      const input = document.getElementById('newYearInput');
+      input.focus();
+      const commit = () => {
+        const val = input.value.trim();
+        if(/^\d{4}$/.test(val)){
+          if(!c.years[val]) c.years[val] = {months:{}};
+          currentYear = val; currentMonth = null;
+          renderMain();
+        }
+      };
+      document.getElementById('newYearSave').addEventListener('click', commit);
+      input.addEventListener('keydown', e => { if(e.key==='Enter') commit(); });
+    });
+    addWrap.appendChild(addBtn);
+    yearRow.appendChild(addWrap);
+
+    // month grid for currentYear
+    const monthGrid = document.getElementById('monthGrid');
+    monthGrid.innerHTML = '';
+    if(currentYear){
+      const yearObj = c.years[currentYear];
+      MESES.forEach((nombreMes, idx) => {
+        const key = String(idx+1).padStart(2,'0');
+        const monthData = yearObj.months[key];
+        const recs = monthData ? monthData.records.filter(r=>r.status==='ok') : [];
+        const totalMes = recs.reduce((s,r)=>s+r.total,0);
+        const card = document.createElement('div');
+        card.className = 'monthCard' + (recs.length ? ' has-data' : '');
+        card.innerHTML = `
+          <span class="m">${nombreMes}</span>
+          <span class="count">${recs.length} factura${recs.length===1?'':'s'}</span>
+          ${recs.length ? `<span class="total">${fmtMoney(totalMes)}</span>` : ''}
+        `;
+        card.addEventListener('click', ()=>{ currentMonth = key; renderMain(); });
+        monthGrid.appendChild(card);
+      });
+    }
+  }
+
+  // ================= MONTH WORKBENCH =================
+  function getPeriod(){
+    const c = getClient(currentClientId);
+    if(!c.years[currentYear]) c.years[currentYear] = {months:{}};
+    if(!c.years[currentYear].months[currentMonth]) c.years[currentYear].months[currentMonth] = {records:[]};
+    return c.years[currentYear].months[currentMonth];
+  }
+
+  function renderMonthWorkbench(){
+    const c = getClient(currentClientId);
+    const monthLabel = MESES[parseInt(currentMonth,10)-1];
+
+    main.innerHTML = `
+      <div class="breadcrumb">
+        <button id="bcClient">${escapeHtml(c.nombre)}</button>
+        <span class="sep">/</span>
+        <button id="bcYear">${currentYear}</button>
+        <span class="sep">/</span>
+        <span>${monthLabel}</span>
+      </div>
+
+      <section class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" multiple accept=".xml" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 14v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4M12 3v12M12 3l-4 4M12 3l4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <p>Arrastra aquí los XML de ${escapeHtml(c.nombre)} — ${monthLabel} ${currentYear}</p>
+        <p class="hint">o <button id="browseBtn" type="button">selecciona los archivos</button></p>
+        <div class="progress-line" id="progressLine"><span id="progressBar"></span></div>
+        <div class="progress-text" id="progressText">Procesando 0 / 0…</div>
+      </section>
+
+      <div class="toolbar">
+        <div class="summary">
+          <div><label>Facturas válidas</label><strong id="sumCount">0</strong></div>
+          <div><label>Subtotal</label><strong id="sumSubtotal">₡0.00</strong></div>
+          <div><label>IVA</label><strong id="sumIva">₡0.00</strong></div>
+          <div><label>Total</label><strong id="sumTotal">₡0.00</strong></div>
+        </div>
+        <div class="actions">
+          <button class="primary" id="exportBtn" disabled>Exportar a Excel</button>
+          <button class="ghost" id="clearBtn">Vaciar mes</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:32px;">#</th>
+              <th>Negocio (Emisor)</th>
+              <th>Fecha</th>
+              <th class="num">Subtotal</th>
+              <th class="num">IVA</th>
+              <th class="num">Total</th>
+              <th>Archivo</th>
+              <th>Estado</th>
+              <th style="width:32px;"></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+          <tfoot id="tfoot" style="display:none;">
+            <tr>
+              <td colspan="3">TOTALES</td>
+              <td class="num" id="footSubtotal">₡0.00</td>
+              <td class="num" id="footIva">₡0.00</td>
+              <td class="num" id="footTotal">₡0.00</td>
+              <td colspan="3"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `;
+
+    document.getElementById('bcClient').addEventListener('click', ()=>{ currentMonth=null; renderMain(); });
+    document.getElementById('bcYear').addEventListener('click', ()=>{ currentMonth=null; renderMain(); });
+
+    wireWorkbench(c);
+    renderTable();
+  }
+
+  function wireWorkbench(client){
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const browseBtn = document.getElementById('browseBtn');
+    const progressLine = document.getElementById('progressLine');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const exportBtn = document.getElementById('exportBtn');
+    const clearBtn = document.getElementById('clearBtn');
+
+    ['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.classList.add('drag'); }));
+    ['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e=>{ e.preventDefault(); dropzone.classList.remove('drag'); }));
+    dropzone.addEventListener('drop', e => processFiles(e.dataTransfer.files, client, progressLine, progressBar, progressText));
+    browseBtn.addEventListener('click', ()=> fileInput.click());
+    fileInput.addEventListener('change', e => {
+      processFiles(e.target.files, client, progressLine, progressBar, progressText);
+      fileInput.value = '';
+    });
+
+    exportBtn.addEventListener('click', ()=>{
+      const period = getPeriod();
+      const rows = period.records.filter(r=>r.status==='ok').map(r => ({
+        'Negocio': r.negocio, 'Fecha': r.fecha,
+        'SubTotal': Number(r.subtotal.toFixed(2)), 'IVA': Number(r.iva.toFixed(2)), 'Total': Number(r.total.toFixed(2)),
+        'Archivo': r.filename
+      }));
+      if(!rows.length) return;
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws['!cols'] = [{wch:34},{wch:12},{wch:14},{wch:12},{wch:14},{wch:38}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
+      const safeName = client.nombre.replace(/[^a-z0-9]+/gi,'-').toLowerCase();
+      XLSX.writeFile(wb, `${safeName}-${currentYear}-${currentMonth}.xlsx`);
+    });
+
+    clearBtn.addEventListener('click', ()=>{
+      if(confirm('¿Vaciar todas las facturas cargadas de este mes?')){
+        getPeriod().records = [];
+        renderTable();
+      }
+    });
+  }
+
+  function textOf(el, tag){
+    if(!el) return '';
+    const found = el.getElementsByTagName(tag);
+    return found.length ? (found[0].textContent || '').trim() : '';
+  }
+  function numOf(v){ const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+  function formatFecha(iso){
+    if(!iso) return 'N/D';
+    const d = new Date(iso);
+    if(isNaN(d.getTime())) return iso;
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  }
+
+  function parseInvoiceXml(text, filename){
+    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    if(doc.getElementsByTagName('parsererror').length) throw new Error('XML inválido o dañado');
+
+    const emisor = doc.getElementsByTagName('Emisor')[0];
+    const receptor = doc.getElementsByTagName('Receptor')[0];
+    const resumen = doc.getElementsByTagName('ResumenFactura')[0];
+    if(!resumen) throw new Error('No se encontró ResumenFactura');
+
+    const clave = textOf(doc.documentElement, 'Clave');
+    const negocio = (emisor && (textOf(emisor,'NombreComercial') || textOf(emisor,'Nombre'))) || 'N/D';
+    const fecha = formatFecha(textOf(doc.documentElement, 'FechaEmision'));
+    const receptorCedula = receptor ? textOf(receptor, 'Numero') : '';
+
+    const subtotal = numOf(textOf(resumen,'TotalVentaNeta') || textOf(resumen,'TotalVenta'));
+    const iva = numOf(textOf(resumen,'TotalImpuesto'));
+    const total = numOf(textOf(resumen,'TotalComprobante'));
+
+    return {clave, negocio, fecha, subtotal, iva, total, filename, receptorCedula};
+  }
+
+  function readFileAsText(file){
+    return new Promise((resolve, reject)=>{
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file, 'utf-8');
+    });
+  }
+
+  function allClaves(client){
+    const set = new Set();
+    Object.values(client.years).forEach(y => Object.values(y.months).forEach(m => {
+      m.records.forEach(r => { if(r.status==='ok' && r.clave) set.add(r.clave); });
+    }));
+    return set;
+  }
+
+  async function processFiles(fileList, client, progressLine, progressBar, progressText){
+    const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.xml'));
+    if(!files.length) return;
+    const period = getPeriod();
+    const claves = allClaves(client);
+
+    progressLine.classList.add('active');
+    progressText.classList.add('active');
+
+    for(let i=0;i<files.length;i++){
+      const file = files[i];
+      progressText.textContent = `Procesando ${i+1} / ${files.length}…`;
+      progressBar.style.width = `${Math.round(((i+1)/files.length)*100)}%`;
+
+      try{
+        const text = await readFileAsText(file);
+        const data = parseInvoiceXml(text, file.name);
+
+        if(data.clave && claves.has(data.clave)){
+          period.records.push({...data, status:'dup', message:'Ya se cargó este comprobante para este cliente'});
+        } else if(normCedula(data.receptorCedula) !== normCedula(client.cedula)){
+          period.records.push({...data, status:'mismatch', message:`La cédula del receptor (${data.receptorCedula || 'no encontrada'}) no coincide con la del cliente (${client.cedula})`});
+        } else {
+          if(data.clave) claves.add(data.clave);
+          period.records.push({...data, status:'ok'});
+        }
+      }catch(err){
+        period.records.push({negocio:'—', fecha:'—', subtotal:0, iva:0, total:0, filename:file.name, status:'error', message:err.message});
+      }
+
+      renderTable();
+      if(i % 3 === 0) await new Promise(r => setTimeout(r,0));
+    }
+
+    progressText.textContent = `Listo — ${files.length} archivo(s) procesados.`;
+    setTimeout(()=>{
+      progressLine.classList.remove('active');
+      progressText.classList.remove('active');
+      progressBar.style.width='0%';
+    }, 1400);
+  }
+
+  function renderTable(){
+    const tbody = document.getElementById('tbody');
+    const tfoot = document.getElementById('tfoot');
+    if(!tbody) return; // view might have changed
+    const period = getPeriod();
+
+    if(!period.records.length){
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Aún no has cargado facturas para este mes. Arrastra tus XML arriba.</td></tr>';
+      tfoot.style.display = 'none';
+    } else {
+      tbody.innerHTML = '';
+      period.records.forEach((r, idx) => {
+        const tr = document.createElement('tr');
+        if(r.status !== 'ok') tr.classList.add('row-flag');
+        const badgeMap = {
+          ok: '<span class="badge ok">Cargado</span>',
+          dup: '<span class="badge dup">Duplicado</span>',
+          mismatch: `<span class="badge mismatch" title="${escapeHtml(r.message||'')}">Cédula no coincide</span>`,
+          error: `<span class="badge error" title="${escapeHtml(r.message||'')}">Error</span>`
+        };
+        tr.innerHTML = `
+          <td>${idx+1}</td>
+          <td class="negocio" title="${escapeHtml(r.negocio||'')}">${escapeHtml(r.negocio || '—')}</td>
+          <td>${escapeHtml(r.fecha || '—')}</td>
+          <td class="num">${r.status==='ok' ? fmtMoney(r.subtotal) : '—'}</td>
+          <td class="num">${r.status==='ok' ? fmtMoney(r.iva) : '—'}</td>
+          <td class="num">${r.status==='ok' ? fmtMoney(r.total) : '—'}</td>
+          <td class="archivo" title="${escapeHtml(r.filename)}">${escapeHtml(r.filename)}</td>
+          <td>${badgeMap[r.status]}</td>
+          <td><button class="del-btn" title="Quitar de la lista">×</button></td>
+        `;
+        tr.querySelector('.del-btn').addEventListener('click', ()=>{
+          period.records.splice(idx,1);
+          renderTable();
+        });
+        tbody.appendChild(tr);
+      });
+      tfoot.style.display = '';
+    }
+
+    const okRecs = period.records.filter(r=>r.status==='ok');
+    const st = okRecs.reduce((a,r)=>{a.subtotal+=r.subtotal;a.iva+=r.iva;a.total+=r.total;return a;},{subtotal:0,iva:0,total:0});
+    document.getElementById('sumCount').textContent = okRecs.length;
+    document.getElementById('sumSubtotal').textContent = fmtMoney(st.subtotal);
+    document.getElementById('sumIva').textContent = fmtMoney(st.iva);
+    document.getElementById('sumTotal').textContent = fmtMoney(st.total);
+    document.getElementById('footSubtotal').textContent = fmtMoney(st.subtotal);
+    document.getElementById('footIva').textContent = fmtMoney(st.iva);
+    document.getElementById('footTotal').textContent = fmtMoney(st.total);
+    document.getElementById('exportBtn').disabled = okRecs.length === 0;
+  }
+
+  renderClientList();
+  renderMain();
+})();
+</script>
+</body>
+</html>
