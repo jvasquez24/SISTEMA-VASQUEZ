@@ -343,11 +343,14 @@
       snap.forEach(doc => {
         if(getClient(doc.id)) return; // ya está cargado localmente
         const data = doc.data();
+        const anios = Array.isArray(data.anios) && data.anios.length ? data.anios : [yNow];
+        const years = {};
+        anios.forEach(a => { years[String(a)] = { months: {} }; });
         clients.push({
           id: doc.id,
           nombre: data.nombre || '(sin nombre)',
           cedula: data.cedula || '',
-          years: { [yNow]: { months: {} } },
+          years,
           _loaded: false
         });
       });
@@ -458,6 +461,7 @@
         await db.collection('clientes').doc(c.id).set({
           nombre,
           cedula,
+          anios: [yNow],
           creado: firebase.firestore.FieldValue.serverTimestamp()
         }, {merge:true});
       }catch(err){
@@ -591,6 +595,13 @@
             currentYear = rest.length ? rest[0] : null;
           }
           renderMain();
+          if(db){
+            db.collection('clientes').doc(c.id).set({
+              anios: firebase.firestore.FieldValue.arrayRemove(y)
+            }, {merge:true}).catch(err => {
+              console.error('Error quitando el año en Firebase:', err);
+            });
+          }
         }
       });
       yearRow.appendChild(pill);
@@ -615,6 +626,13 @@
           if(!c.years[val]) c.years[val] = {months:{}};
           currentYear = val; currentMonth = null;
           renderMain();
+          if(db){
+            db.collection('clientes').doc(c.id).set({
+              anios: firebase.firestore.FieldValue.arrayUnion(val)
+            }, {merge:true}).catch(err => {
+              console.error('Error guardando el año en Firebase:', err);
+            });
+          }
         }
       };
       document.getElementById('newYearSave').addEventListener('click', commit);
