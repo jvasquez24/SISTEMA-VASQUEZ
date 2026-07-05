@@ -202,6 +202,39 @@
     .table-wrap{overflow-x:auto;}
     table{min-width:780px;}
   }
+
+  /* ================= DELETE MODAL ================= */
+  .modalOverlay{
+    display:none;position:fixed;inset:0;background:rgba(15,22,18,.66);
+    align-items:center;justify-content:center;z-index:100;padding:20px;
+  }
+  .modalOverlay.open{display:flex;}
+  .modalCard{
+    background:var(--paper);border-radius:var(--radius);padding:28px 30px;max-width:440px;width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,.35);
+  }
+  .modalCard h3{font-family:'Fraunces',serif;font-weight:600;font-size:21px;margin:0 0 10px;color:var(--red);}
+  .modalCard p{font-size:15px;line-height:1.5;color:var(--ink);margin:0 0 10px;}
+  .modalCard p.warn{background:#F6DCD3;color:var(--red);padding:10px 12px;border-radius:var(--radius);font-size:14px;}
+  .stepLabel{
+    display:block;font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;
+    letter-spacing:.06em;color:var(--text-dim);margin:16px 0 6px;
+  }
+  .checkRow{display:flex;align-items:flex-start;gap:9px;font-size:14.5px;line-height:1.4;cursor:pointer;}
+  .checkRow input{margin-top:3px;}
+  #deleteConfirmInput{
+    width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius);
+    font-family:'JetBrains Mono',monospace;font-size:15px;
+  }
+  .modalActions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;}
+  button.dangerBtn{
+    background:var(--red);color:#fff;border:none;border-radius:var(--radius);
+    padding:11px 18px;font-weight:600;font-size:14.5px;cursor:pointer;font-family:'Inter',sans-serif;
+  }
+  button.dangerBtn:hover:not(:disabled){background:#7E3120;}
+  button.dangerBtn:disabled{background:#CBB9AE;cursor:not-allowed;}
+  .deleteStatus{font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--text-dim);margin-top:12px;min-height:16px;}
+  .deleteStatus.err{color:var(--red);}
 </style>
 </head>
 <body>
@@ -237,10 +270,27 @@
     <div class="welcome">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h16v16H4z" stroke-linejoin="round"/><path d="M8 9h8M8 13h8M8 17h4" stroke-linecap="round"/></svg>
       <h2>Selecciona o agrega un cliente</h2>
-      <p>Cada cliente guarda sus comprobantes ordenados por año y mes. Los datos se guardan solo en esta sesión — usa "Guardar copia" para conservarlos.</p>
+      <p>Cada cliente guarda sus comprobantes ordenados por año y mes, sincronizados automáticamente con Firebase.</p>
     </div>
   </main>
 
+</div>
+
+<div class="modalOverlay" id="deleteModal">
+  <div class="modalCard">
+    <h3>Eliminar cliente permanentemente</h3>
+    <p id="deleteModalText"></p>
+    <p class="warn">Esta acción borra al cliente y <strong>todas sus facturas guardadas en Firebase</strong>. No se puede deshacer.</p>
+    <label class="stepLabel">Paso 1 de 2 — confirma que entiendes el riesgo</label>
+    <label class="checkRow"><input type="checkbox" id="deleteAck"> Sí, quiero eliminar este cliente y sus datos de forma permanente.</label>
+    <label class="stepLabel">Paso 2 de 2 — escribe el nombre exacto del cliente</label>
+    <input type="text" id="deleteConfirmInput" placeholder="Escribe el nombre del cliente aquí">
+    <div class="modalActions">
+      <button class="ghost" id="deleteCancelBtn" type="button">Cancelar</button>
+      <button class="dangerBtn" id="deleteConfirmBtn" type="button" disabled>Eliminar permanentemente</button>
+    </div>
+    <p class="deleteStatus" id="deleteStatus"></p>
+  </div>
 </div>
 
 <script>
@@ -403,11 +453,7 @@
       });
       item.querySelector('.del').addEventListener('click', (e)=>{
         e.stopPropagation();
-        if(confirm(`¿Eliminar a "${c.nombre}" y todas sus facturas guardadas en esta sesión?`)){
-          clients = clients.filter(x => x.id !== c.id);
-          if(currentClientId === c.id){ currentClientId = null; currentYear = null; currentMonth = null; renderMain(); }
-          renderClientList();
-        }
+        openDeleteModal(c);
       });
       clientList.appendChild(item);
     });
@@ -416,6 +462,75 @@
   function escapeHtml(s){
     return (s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   }
+
+  // ================= DELETE CLIENT MODAL (doble verificación) =================
+  const deleteModal = document.getElementById('deleteModal');
+  const deleteModalText = document.getElementById('deleteModalText');
+  const deleteAck = document.getElementById('deleteAck');
+  const deleteConfirmInput = document.getElementById('deleteConfirmInput');
+  const deleteCancelBtn = document.getElementById('deleteCancelBtn');
+  const deleteConfirmBtn = document.getElementById('deleteConfirmBtn');
+  const deleteStatus = document.getElementById('deleteStatus');
+  let clientPendingDelete = null;
+
+  function openDeleteModal(client){
+    clientPendingDelete = client;
+    deleteModalText.textContent = `Vas a eliminar a "${client.nombre}" (cédula ${client.cedula}).`;
+    deleteAck.checked = false;
+    deleteConfirmInput.value = '';
+    deleteStatus.textContent = '';
+    deleteStatus.className = 'deleteStatus';
+    deleteConfirmBtn.disabled = true;
+    deleteConfirmBtn.textContent = 'Eliminar permanentemente';
+    deleteModal.classList.add('open');
+    setTimeout(()=> deleteAck.focus(), 50);
+  }
+  function closeDeleteModal(){
+    deleteModal.classList.remove('open');
+    clientPendingDelete = null;
+  }
+  function refreshDeleteButtonState(){
+    const nameMatches = clientPendingDelete && deleteConfirmInput.value.trim() === clientPendingDelete.nombre.trim();
+    deleteConfirmBtn.disabled = !(deleteAck.checked && nameMatches);
+  }
+  deleteAck.addEventListener('change', refreshDeleteButtonState);
+  deleteConfirmInput.addEventListener('input', refreshDeleteButtonState);
+  deleteCancelBtn.addEventListener('click', closeDeleteModal);
+  deleteModal.addEventListener('click', (e)=>{ if(e.target === deleteModal) closeDeleteModal(); });
+
+  async function deleteClientPermanently(client){
+    if(!db){
+      deleteStatus.textContent = 'Firebase no está disponible — no se puede eliminar de forma permanente ahora.';
+      deleteStatus.classList.add('err');
+      return;
+    }
+    deleteConfirmBtn.disabled = true;
+    deleteConfirmBtn.textContent = 'Eliminando…';
+    deleteStatus.textContent = 'Eliminando facturas y datos del cliente en Firebase…';
+    deleteStatus.className = 'deleteStatus';
+    try{
+      const clienteRef = db.collection('clientes').doc(client.id);
+      const periodosSnap = await clienteRef.collection('periodos').get();
+      const batch = db.batch();
+      periodosSnap.forEach(doc => batch.delete(doc.ref));
+      batch.delete(clienteRef);
+      await batch.commit();
+
+      clients = clients.filter(x => x.id !== client.id);
+      if(currentClientId === client.id){ currentClientId = null; currentYear = null; currentMonth = null; renderMain(); }
+      renderClientList();
+      closeDeleteModal();
+    }catch(err){
+      console.error('Error eliminando cliente en Firebase:', err);
+      deleteStatus.textContent = `Error al eliminar (${err.code || 'error'}): ${err.message}`;
+      deleteStatus.classList.add('err');
+      deleteConfirmBtn.disabled = false;
+      deleteConfirmBtn.textContent = 'Eliminar permanentemente';
+    }
+  }
+  deleteConfirmBtn.addEventListener('click', ()=>{
+    if(clientPendingDelete) deleteClientPermanently(clientPendingDelete);
+  });
 
   newClientBtn.addEventListener('click', ()=>{
     clientForm.classList.add('open');
@@ -499,7 +614,7 @@
         <div class="welcome">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M4 4h16v16H4z" stroke-linejoin="round"/><path d="M8 9h8M8 13h8M8 17h4" stroke-linecap="round"/></svg>
           <h2>Selecciona o agrega un cliente</h2>
-          <p>Cada cliente guarda sus comprobantes ordenados por año y mes. Los datos se guardan solo en esta sesión — usa "Guardar copia" para conservarlos.</p>
+          <p>Cada cliente guarda sus comprobantes ordenados por año y mes, sincronizados automáticamente con Firebase.</p>
         </div>`;
       return;
     }
@@ -781,6 +896,13 @@
     const doc = new DOMParser().parseFromString(text, 'application/xml');
     if(doc.getElementsByTagName('parsererror').length) throw new Error('XML inválido o dañado');
 
+    const rootName = (doc.documentElement.localName || doc.documentElement.tagName || '');
+    if(/^mensaje/i.test(rootName)){
+      const skipErr = new Error('Es un mensaje de confirmación/respuesta de Hacienda, no una factura');
+      skipErr.isMensajeHacienda = true;
+      throw skipErr;
+    }
+
     const emisor = doc.getElementsByTagName('Emisor')[0];
     const receptor = doc.getElementsByTagName('Receptor')[0];
     const resumen = doc.getElementsByTagName('ResumenFactura')[0];
@@ -821,6 +943,7 @@
     if(!files.length) return;
     const period = getPeriod();
     const claves = allClaves(client);
+    let omitidos = 0;
 
     progressLine.classList.add('active');
     progressText.classList.add('active');
@@ -843,14 +966,19 @@
           period.records.push({...data, status:'ok'});
         }
       }catch(err){
-        period.records.push({negocio:'—', fecha:'—', subtotal:0, iva:0, total:0, tipoImpuesto:'—', filename:file.name, status:'error', message:err.message});
+        if(err.isMensajeHacienda){
+          omitidos++; // mensaje de confirmación de Hacienda: se ignora, no se muestra como error
+        } else {
+          period.records.push({negocio:'—', fecha:'—', subtotal:0, iva:0, total:0, tipoImpuesto:'—', filename:file.name, status:'error', message:err.message});
+        }
       }
 
       renderTable();
       if(i % 3 === 0) await new Promise(r => setTimeout(r,0));
     }
 
-    progressText.textContent = `Listo — ${files.length} archivo(s) procesados.`;
+    const omitidosTxt = omitidos ? ` (${omitidos} mensaje(s) de Hacienda omitidos)` : '';
+    progressText.textContent = `Listo — ${files.length} archivo(s) procesados${omitidosTxt}.`;
     setTimeout(()=>{
       progressLine.classList.remove('active');
       progressText.classList.remove('active');
