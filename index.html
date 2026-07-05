@@ -73,19 +73,18 @@
   .clientItem .del:hover{color:#E3897A;}
   .emptyClients{color:var(--text-on-ink-dim);font-size:15.5px;padding:10px 6px;line-height:1.5;}
 
-  .backupBox{border-top:1px solid #2A3B33;padding-top:14px;display:flex;flex-direction:column;gap:8px;}
-  .backupBox button{
-    background:transparent;border:1px solid #2A3B33;color:var(--text-on-ink-dim);
-    padding:9px;border-radius:var(--radius);font-size:15px;font-family:'JetBrains Mono',monospace;
-    cursor:pointer;text-align:left;
-  }
-  .backupBox button:hover{border-color:var(--gold);color:var(--gold);}
   .fbStatus{
-    font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.5;padding:10px 4px 0;
-    color:var(--text-on-ink-dim);border-top:1px solid #2A3B33;
+    display:flex;align-items:center;gap:8px;
+    font-family:'JetBrains Mono',monospace;font-size:15px;line-height:1.4;
+    padding:12px 4px 0;color:var(--text-on-ink-dim);border-top:1px solid #2A3B33;margin-top:auto;
+  }
+  .fbStatus::before{
+    content:'';width:8px;height:8px;border-radius:50%;flex:none;background:#6D7768;
   }
   .fbStatus.ok{color:#8FCBA9;}
+  .fbStatus.ok::before{background:#3DBE7A;box-shadow:0 0 6px #3DBE7A;}
   .fbStatus.err{color:#E3897A;}
+  .fbStatus.err::before{background:#D9503C;}
 
   /* ================= MAIN ================= */
   .main{flex:1;background:var(--paper);min-height:100vh;padding:38px 42px;overflow-x:hidden;}
@@ -201,7 +200,7 @@
     .main{padding:26px 18px;}
     .monthGrid{grid-template-columns:repeat(2,1fr);}
     .table-wrap{overflow-x:auto;}
-    table{min-width:680px;}
+    table{min-width:780px;}
   }
 </style>
 </head>
@@ -228,12 +227,6 @@
 
     <div class="clientList" id="clientList">
       <div class="emptyClients">Aún no tienes clientes. Agrega uno para empezar a organizar sus facturas por año y mes.</div>
-    </div>
-
-    <div class="backupBox">
-      <button id="saveBackupBtn" type="button">↓ Guardar copia (.json)</button>
-      <button id="loadBackupBtn" type="button">↑ Cargar copia (.json)</button>
-      <input type="file" id="backupInput" accept=".json" hidden>
     </div>
 
     <div class="fbStatus" id="fbStatus">Verificando conexión con Firebase…</div>
@@ -266,11 +259,12 @@
   let db = null;
   let fbReady = false;
 
-  function setFbStatus(text, kind){
+  function setFbStatus(text, kind, detail){
     const el = document.getElementById('fbStatus');
     if(!el) return;
     el.textContent = text;
     el.className = 'fbStatus' + (kind ? ' ' + kind : '');
+    el.title = detail || '';
   }
 
   try{
@@ -281,7 +275,7 @@
     db = firebase.firestore();
   }catch(err){
     console.error('Error inicializando Firebase:', err);
-    setFbStatus('✕ No se pudo inicializar Firebase: ' + err.message, 'err');
+    setFbStatus('Sin conexión', 'err', err.message);
   }
 
   async function testFirebaseConnection(){
@@ -291,17 +285,17 @@
       await ref.set({ probado: firebase.firestore.FieldValue.serverTimestamp() }, {merge:true});
       await ref.get();
       fbReady = true;
-      setFbStatus('✓ Conectado a Firebase (' + firebaseConfig.projectId + ')', 'ok');
+      setFbStatus('Conectado', 'ok');
       loadClientsFromFirebase();
     }catch(err){
       console.error('Error de conexión con Firebase:', err);
       let extra = '';
       if(err.code === 'permission-denied'){
-        extra = ' — revisa las reglas de seguridad de Firestore (están bloqueando lectura/escritura).';
+        extra = ' — revisa las reglas de seguridad de Firestore.';
       } else if(err.code === 'unavailable' || err.code === 'not-found'){
-        extra = ' — revisa que la base de datos de Firestore esté creada en el proyecto.';
+        extra = ' — revisa que la base de datos de Firestore esté creada.';
       }
-      setFbStatus('✕ Sin conexión a Firebase: ' + err.message + extra, 'err');
+      setFbStatus('Sin conexión', 'err', err.message + extra);
     }
   }
   testFirebaseConnection();
@@ -328,9 +322,6 @@
   const cfErr = document.getElementById('cfErr');
   const cfSave = document.getElementById('cfSave');
   const cfCancel = document.getElementById('cfCancel');
-  const saveBackupBtn = document.getElementById('saveBackupBtn');
-  const loadBackupBtn = document.getElementById('loadBackupBtn');
-  const backupInput = document.getElementById('backupInput');
 
   // ================= CLIENT SIDEBAR =================
   function getClient(id){ return clients.find(c => c.id === id); }
@@ -380,6 +371,7 @@
             total: f.total || 0,
             filename: f.archivo || '(cargado desde Firebase)',
             clave: f.clave || null,
+            tipoImpuesto: f.tipoImpuesto || 'Exento',
             status: 'ok'
           }))
         };
@@ -499,37 +491,6 @@
     currentYear = years[0];
     renderMain();
   }
-
-  // ================= BACKUP =================
-  saveBackupBtn.addEventListener('click', ()=>{
-    const blob = new Blob([JSON.stringify(clients, null, 2)], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `control-facturas-${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  });
-  loadBackupBtn.addEventListener('click', ()=> backupInput.click());
-  backupInput.addEventListener('change', (e)=>{
-    const file = e.target.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try{
-        const parsed = JSON.parse(reader.result);
-        if(!Array.isArray(parsed)) throw new Error('Formato inválido');
-        clients = parsed;
-        currentClientId = null; currentYear = null; currentMonth = null;
-        renderClientList();
-        renderMain();
-      }catch(err){
-        alert('No se pudo leer el archivo de respaldo: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
-    backupInput.value = '';
-  });
 
   // ================= MAIN RENDER DISPATCH =================
   function renderMain(){
@@ -718,6 +679,7 @@
               <th>Fecha</th>
               <th class="num">Subtotal</th>
               <th class="num">IVA</th>
+              <th>Tipo IVA</th>
               <th class="num">Total</th>
               <th>Archivo</th>
               <th>Estado</th>
@@ -730,6 +692,7 @@
               <td colspan="3">TOTALES</td>
               <td class="num" id="footSubtotal">₡0.00</td>
               <td class="num" id="footIva">₡0.00</td>
+              <td></td>
               <td class="num" id="footTotal">₡0.00</td>
               <td colspan="3"></td>
             </tr>
@@ -768,12 +731,12 @@
       const period = getPeriod();
       const rows = period.records.filter(r=>r.status==='ok').map(r => ({
         'Negocio': r.negocio, 'Fecha': r.fecha,
-        'SubTotal': Number(r.subtotal.toFixed(2)), 'IVA': Number(r.iva.toFixed(2)), 'Total': Number(r.total.toFixed(2)),
-        'Archivo': r.filename
+        'SubTotal': Number(r.subtotal.toFixed(2)), 'IVA': Number(r.iva.toFixed(2)), 'Tipo IVA': r.tipoImpuesto || '—',
+        'Total': Number(r.total.toFixed(2)), 'Archivo': r.filename
       }));
       if(!rows.length) return;
       const ws = XLSX.utils.json_to_sheet(rows);
-      ws['!cols'] = [{wch:34},{wch:12},{wch:14},{wch:12},{wch:14},{wch:38}];
+      ws['!cols'] = [{wch:34},{wch:12},{wch:14},{wch:12},{wch:12},{wch:14},{wch:38}];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
       const safeName = client.nombre.replace(/[^a-z0-9]+/gi,'-').toLowerCase();
@@ -796,6 +759,17 @@
     return found.length ? (found[0].textContent || '').trim() : '';
   }
   function numOf(v){ const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+
+  function extractTipoImpuesto(doc){
+    const impuestos = doc.getElementsByTagName('Impuesto');
+    const tarifas = new Set();
+    for(let i=0;i<impuestos.length;i++){
+      const t = textOf(impuestos[i], 'Tarifa');
+      if(t !== '') tarifas.add(numOf(t));
+    }
+    if(!tarifas.size) return 'Exento';
+    return Array.from(tarifas).sort((a,b)=>b-a).map(v => `${v}%`).join(' / ');
+  }
   function formatFecha(iso){
     if(!iso) return 'N/D';
     const d = new Date(iso);
@@ -820,8 +794,9 @@
     const subtotal = numOf(textOf(resumen,'TotalVentaNeta') || textOf(resumen,'TotalVenta'));
     const iva = numOf(textOf(resumen,'TotalImpuesto'));
     const total = numOf(textOf(resumen,'TotalComprobante'));
+    const tipoImpuesto = extractTipoImpuesto(doc);
 
-    return {clave, negocio, fecha, subtotal, iva, total, filename, receptorCedula};
+    return {clave, negocio, fecha, subtotal, iva, total, filename, receptorCedula, tipoImpuesto};
   }
 
   function readFileAsText(file){
@@ -868,7 +843,7 @@
           period.records.push({...data, status:'ok'});
         }
       }catch(err){
-        period.records.push({negocio:'—', fecha:'—', subtotal:0, iva:0, total:0, filename:file.name, status:'error', message:err.message});
+        period.records.push({negocio:'—', fecha:'—', subtotal:0, iva:0, total:0, tipoImpuesto:'—', filename:file.name, status:'error', message:err.message});
       }
 
       renderTable();
@@ -909,7 +884,7 @@
       mes: currentMonth,
       facturas: okRecs.map(r => ({
         negocio: r.negocio, fecha: r.fecha, subtotal: r.subtotal, iva: r.iva, total: r.total,
-        archivo: r.filename, clave: r.clave || null
+        archivo: r.filename, clave: r.clave || null, tipoImpuesto: r.tipoImpuesto || null
       })),
       totales: okRecs.reduce((a,r)=>{a.subtotal+=r.subtotal;a.iva+=r.iva;a.total+=r.total;return a;},{subtotal:0,iva:0,total:0}),
       actualizado: firebase.firestore.FieldValue.serverTimestamp()
@@ -951,7 +926,7 @@
     const period = getPeriod();
 
     if(!period.records.length){
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="9">Aún no has cargado facturas para este mes. Arrastra tus XML arriba.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Aún no has cargado facturas para este mes. Arrastra tus XML arriba.</td></tr>';
       tfoot.style.display = 'none';
     } else {
       tbody.innerHTML = '';
@@ -970,6 +945,7 @@
           <td>${escapeHtml(r.fecha || '—')}</td>
           <td class="num">${r.status==='ok' ? fmtMoney(r.subtotal) : '—'}</td>
           <td class="num">${r.status==='ok' ? fmtMoney(r.iva) : '—'}</td>
+          <td>${escapeHtml(r.tipoImpuesto || '—')}</td>
           <td class="num">${r.status==='ok' ? fmtMoney(r.total) : '—'}</td>
           <td class="archivo" title="${escapeHtml(r.filename)}">${escapeHtml(r.filename)}</td>
           <td>${badgeMap[r.status]}</td>
