@@ -181,7 +181,7 @@
   tbody tr:last-child td{border-bottom:none;}
   tbody tr:hover{background:var(--paper-dim);}
   td.num{font-family:'JetBrains Mono',monospace;text-align:right;white-space:nowrap;}
-  td.negocio{font-weight:600;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  td.negocio{font-weight:600;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   td.archivo{color:var(--text-dim);font-size:15px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:13.5px;font-weight:600;font-family:'JetBrains Mono',monospace;}
   .badge.ok{background:#E4EEE8;color:var(--teal);}
@@ -790,7 +790,7 @@
           <thead>
             <tr>
               <th style="width:32px;">#</th>
-              <th>Negocio (Emisor)</th>
+              <th>Cédula - Negocio (Emisor)</th>
               <th>Fecha</th>
               <th class="num">Subtotal</th>
               <th class="num">IVA</th>
@@ -851,7 +851,7 @@
       }));
       if(!rows.length) return;
       const ws = XLSX.utils.json_to_sheet(rows);
-      ws['!cols'] = [{wch:34},{wch:12},{wch:14},{wch:12},{wch:12},{wch:14},{wch:38}];
+      ws['!cols'] = [{wch:46},{wch:12},{wch:14},{wch:12},{wch:12},{wch:14},{wch:38}];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
       const safeName = client.nombre.replace(/[^a-z0-9]+/gi,'-').toLowerCase();
@@ -909,7 +909,9 @@
     if(!resumen) throw new Error('No se encontró ResumenFactura');
 
     const clave = textOf(doc.documentElement, 'Clave');
-    const negocio = (emisor && (textOf(emisor,'NombreComercial') || textOf(emisor,'Nombre'))) || 'N/D';
+    const emisorCedula = emisor ? textOf(emisor, 'Numero') : '';
+    const nombreNegocio = (emisor && (textOf(emisor,'NombreComercial') || textOf(emisor,'Nombre'))) || 'N/D';
+    const negocio = emisorCedula ? `${emisorCedula} - ${nombreNegocio}` : nombreNegocio;
     const fecha = formatFecha(textOf(doc.documentElement, 'FechaEmision'));
     const receptorCedula = receptor ? textOf(receptor, 'Numero') : '';
 
@@ -1047,6 +1049,40 @@
     }
   }
 
+  async function deleteInvoiceFromFirebase(client, year, month, updatedOkRecords){
+    if(!db) return;
+    const cloudStatusEl = document.getElementById('cloudStatus');
+    try{
+      const periodoRef = db.collection('clientes').doc(client.id).collection('periodos').doc(`${year}-${month}`);
+      const snap = await periodoRef.get();
+      if(!snap.exists) return; // esta factura nunca se había guardado en Firebase, nada que borrar allá
+
+      if(!updatedOkRecords.length){
+        await periodoRef.delete();
+      } else {
+        const totales = updatedOkRecords.reduce((a,r)=>{a.subtotal+=r.subtotal;a.iva+=r.iva;a.total+=r.total;return a;},{subtotal:0,iva:0,total:0});
+        await periodoRef.set({
+          facturas: updatedOkRecords.map(r => ({
+            negocio: r.negocio, fecha: r.fecha, subtotal: r.subtotal, iva: r.iva, total: r.total,
+            archivo: r.filename, clave: r.clave || null, tipoImpuesto: r.tipoImpuesto || null
+          })),
+          totales,
+          actualizado: firebase.firestore.FieldValue.serverTimestamp()
+        }, {merge:true});
+      }
+      if(cloudStatusEl){
+        cloudStatusEl.className = 'cloudStatus ok';
+        cloudStatusEl.textContent = '✓ Factura eliminada también de Firebase — ' + new Date().toLocaleTimeString('es-CR');
+      }
+    }catch(err){
+      console.error('Error eliminando factura en Firebase:', err);
+      if(cloudStatusEl){
+        cloudStatusEl.className = 'cloudStatus err';
+        cloudStatusEl.textContent = `No se pudo eliminar de Firebase (${err.code || 'error'}): ${err.message}`;
+      }
+    }
+  }
+
   function renderTable(){
     const tbody = document.getElementById('tbody');
     const tfoot = document.getElementById('tfoot');
@@ -1082,6 +1118,8 @@
         tr.querySelector('.del-btn').addEventListener('click', ()=>{
           period.records.splice(idx,1);
           renderTable();
+          const client = getClient(currentClientId);
+          if(client) deleteInvoiceFromFirebase(client, currentYear, currentMonth, period.records.filter(x=>x.status==='ok'));
         });
         tbody.appendChild(tr);
       });
