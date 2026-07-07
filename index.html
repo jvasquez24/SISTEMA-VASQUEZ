@@ -192,7 +192,10 @@
   .del-btn{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;padding:4px 6px;border-radius:var(--radius);}
   .del-btn:hover{color:var(--red);background:var(--paper-dim);}
   .empty-row td{text-align:center;color:var(--text-dim);padding:34px 14px;font-style:italic;}
-  tfoot td{padding:13px 14px;border-top:2px solid var(--ink);font-family:'JetBrains Mono',monospace;font-weight:700;background:var(--paper-dim);}
+  tfoot td{padding:13px 14px;border-top:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-weight:600;background:var(--paper-dim);}
+  tfoot tr.tax-group-row td{font-weight:500;color:var(--text-dim);font-size:13.5px;}
+  tfoot tr.tax-group-row td.num{color:var(--ink);font-weight:600;}
+  tfoot tr.grand-total-row td{border-top:2px solid var(--ink);font-weight:700;font-size:15.5px;}
 
   @media (max-width:900px){
     .app{flex-direction:column;}
@@ -802,16 +805,7 @@
             </tr>
           </thead>
           <tbody id="tbody"></tbody>
-          <tfoot id="tfoot" style="display:none;">
-            <tr>
-              <td colspan="3">TOTALES</td>
-              <td class="num" id="footSubtotal">₡0.00</td>
-              <td class="num" id="footIva">₡0.00</td>
-              <td></td>
-              <td class="num" id="footTotal">₡0.00</td>
-              <td colspan="3"></td>
-            </tr>
-          </tfoot>
+          <tfoot id="tfoot" style="display:none;"></tfoot>
         </table>
       </div>
     `;
@@ -1132,12 +1126,56 @@
     document.getElementById('sumSubtotal').textContent = fmtMoney(st.subtotal);
     document.getElementById('sumIva').textContent = fmtMoney(st.iva);
     document.getElementById('sumTotal').textContent = fmtMoney(st.total);
-    document.getElementById('footSubtotal').textContent = fmtMoney(st.subtotal);
-    document.getElementById('footIva').textContent = fmtMoney(st.iva);
-    document.getElementById('footTotal').textContent = fmtMoney(st.total);
+    renderTaxBreakdown(tfoot, okRecs, st);
     document.getElementById('exportBtn').disabled = okRecs.length === 0;
     const cloudBtnEl = document.getElementById('cloudBtn');
     if(cloudBtnEl) cloudBtnEl.disabled = okRecs.length === 0;
+  }
+
+  const TAX_PRIORITY = ['1%','2%','4%','13%'];
+  function taxPriorityIndex(label){
+    const i = TAX_PRIORITY.indexOf(label);
+    return i === -1 ? TAX_PRIORITY.length : i;
+  }
+
+  function renderTaxBreakdown(tfoot, okRecs, grandTotal){
+    if(!okRecs.length){ tfoot.innerHTML = ''; return; }
+
+    const groups = new Map(); // etiqueta tipo IVA -> {subtotal, iva, total, count}
+    okRecs.forEach(r => {
+      const label = r.tipoImpuesto || 'Exento';
+      if(!groups.has(label)) groups.set(label, {subtotal:0, iva:0, total:0, count:0});
+      const g = groups.get(label);
+      g.subtotal += r.subtotal; g.iva += r.iva; g.total += r.total; g.count += 1;
+    });
+
+    const ordered = Array.from(groups.entries())
+      .map(([label, vals]) => ({label, ...vals}))
+      .sort((a,b) => taxPriorityIndex(a.label) - taxPriorityIndex(b.label));
+
+    let rows = '';
+    ordered.forEach(g => {
+      rows += `
+        <tr class="tax-group-row">
+          <td colspan="3">Subtotal IVA ${escapeHtml(g.label)} (${g.count} factura${g.count===1?'':'s'})</td>
+          <td class="num">${fmtMoney(g.subtotal)}</td>
+          <td class="num">${fmtMoney(g.iva)}</td>
+          <td></td>
+          <td class="num">${fmtMoney(g.total)}</td>
+          <td colspan="3"></td>
+        </tr>`;
+    });
+    rows += `
+      <tr class="grand-total-row">
+        <td colspan="3">TOTAL GENERAL</td>
+        <td class="num">${fmtMoney(grandTotal.subtotal)}</td>
+        <td class="num">${fmtMoney(grandTotal.iva)}</td>
+        <td></td>
+        <td class="num">${fmtMoney(grandTotal.total)}</td>
+        <td colspan="3"></td>
+      </tr>`;
+
+    tfoot.innerHTML = rows;
   }
 
   renderClientList();
