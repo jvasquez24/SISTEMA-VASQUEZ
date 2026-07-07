@@ -193,8 +193,9 @@
   .del-btn:hover{color:var(--red);background:var(--paper-dim);}
   .empty-row td{text-align:center;color:var(--text-dim);padding:34px 14px;font-style:italic;}
   tfoot td{padding:13px 14px;border-top:1px solid var(--line);font-family:'JetBrains Mono',monospace;font-weight:600;background:var(--paper-dim);}
-  tfoot tr.tax-group-row td{font-weight:500;color:var(--text-dim);font-size:13.5px;}
+  tfoot tr.tax-group-row td{background:#fff;font-weight:500;color:var(--text-dim);font-size:13.5px;border-top:1px solid var(--line);}
   tfoot tr.tax-group-row td.num{color:var(--ink);font-weight:600;}
+  tfoot tr.tax-group-row:first-child td{border-top:2px solid var(--ink);}
   tfoot tr.grand-total-row td{border-top:2px solid var(--ink);font-weight:700;font-size:15.5px;}
 
   @media (max-width:900px){
@@ -246,7 +247,7 @@
   <!-- ================= SIDEBAR ================= -->
   <aside class="sidebar">
     <div class="brand">
-      <span class="eyebrow">SISTEMA VASQUEZ 1.0</span>
+      <span class="eyebrow">Hacienda CR · XML v4.3/4.4</span>
       <h1>Control de Facturas</h1>
     </div>
 
@@ -838,14 +839,33 @@
 
     exportBtn.addEventListener('click', ()=>{
       const period = getPeriod();
-      const rows = period.records.filter(r=>r.status==='ok').map(r => ({
+      const okRecs = period.records.filter(r=>r.status==='ok');
+      if(!okRecs.length) return;
+
+      const rows = okRecs.map(r => ({
         'Negocio': r.negocio, 'Fecha': r.fecha,
         'SubTotal': Number(r.subtotal.toFixed(2)), 'IVA': Number(r.iva.toFixed(2)), 'Tipo IVA': r.tipoImpuesto || '—',
         'Total': Number(r.total.toFixed(2)), 'Archivo': r.filename
       }));
-      if(!rows.length) return;
       const ws = XLSX.utils.json_to_sheet(rows);
       ws['!cols'] = [{wch:46},{wch:12},{wch:14},{wch:12},{wch:12},{wch:14},{wch:38}];
+
+      // desglose de totales por tipo de IVA + total general, debajo de las facturas
+      const grupos = computeTaxGroups(okRecs);
+      const grand = okRecs.reduce((a,r)=>{a.subtotal+=r.subtotal;a.iva+=r.iva;a.total+=r.total;return a;},{subtotal:0,iva:0,total:0});
+      const extraRows = [[]]; // fila en blanco de separación
+      grupos.forEach(g => {
+        extraRows.push([
+          `Subtotal IVA ${g.label} (${g.count} factura${g.count===1?'':'s'})`, '',
+          Number(g.subtotal.toFixed(2)), Number(g.iva.toFixed(2)), g.label, Number(g.total.toFixed(2)), ''
+        ]);
+      });
+      extraRows.push([
+        'TOTAL GENERAL', '',
+        Number(grand.subtotal.toFixed(2)), Number(grand.iva.toFixed(2)), '', Number(grand.total.toFixed(2)), ''
+      ]);
+      XLSX.utils.sheet_add_aoa(ws, extraRows, {origin: -1});
+
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Facturas');
       const safeName = client.nombre.replace(/[^a-z0-9]+/gi,'-').toLowerCase();
@@ -1138,9 +1158,7 @@
     return i === -1 ? TAX_PRIORITY.length : i;
   }
 
-  function renderTaxBreakdown(tfoot, okRecs, grandTotal){
-    if(!okRecs.length){ tfoot.innerHTML = ''; return; }
-
+  function computeTaxGroups(okRecs){
     const groups = new Map(); // etiqueta tipo IVA -> {subtotal, iva, total, count}
     okRecs.forEach(r => {
       const label = r.tipoImpuesto || 'Exento';
@@ -1148,10 +1166,15 @@
       const g = groups.get(label);
       g.subtotal += r.subtotal; g.iva += r.iva; g.total += r.total; g.count += 1;
     });
-
-    const ordered = Array.from(groups.entries())
+    return Array.from(groups.entries())
       .map(([label, vals]) => ({label, ...vals}))
       .sort((a,b) => taxPriorityIndex(a.label) - taxPriorityIndex(b.label));
+  }
+
+  function renderTaxBreakdown(tfoot, okRecs, grandTotal){
+    if(!okRecs.length){ tfoot.innerHTML = ''; return; }
+
+    const ordered = computeTaxGroups(okRecs);
 
     let rows = '';
     ordered.forEach(g => {
